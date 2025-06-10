@@ -19,22 +19,37 @@ const app = express();
 const server = http.createServer(app);
 const io = socketIo(server, {
   cors: {
-    origin: '*',
-    methods: ['GET', 'POST']
+    origin: process.env.NODE_ENV === 'production' 
+      ? ['https://hubtransfer-frontend.onrender.com', 'https://hubtransfer-backend.onrender.com']
+      : '*',
+    methods: ['GET', 'POST'],
+    credentials: true
   }
 });
 
 // Database connection
 const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
   user: process.env.DB_USER,
   host: process.env.DB_HOST,
   database: process.env.DB_NAME,
   password: process.env.DB_PASSWORD,
-  port: process.env.DB_PORT
+  port: process.env.DB_PORT || 5432,
+  ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false
 });
 
+// CORS configuration for production
+const corsOptions = {
+  origin: process.env.NODE_ENV === 'production' 
+    ? ['https://hubtransfer-frontend.onrender.com', 'https://hubtransfer-backend.onrender.com']
+    : '*',
+  methods: ['GET', 'POST', 'PUT', 'DELETE'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
+  credentials: true
+};
+
 // Middleware
-app.use(cors());
+app.use(cors(corsOptions));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
@@ -52,6 +67,24 @@ app.use((req, res, next) => {
 app.use('/api/files', fileRoutes);
 app.use('/api/auth', authRoutes);
 
+// Health check endpoint for Render
+app.get('/health', (req, res) => {
+  res.status(200).json({ 
+    status: 'healthy', 
+    timestamp: new Date().toISOString(),
+    environment: process.env.NODE_ENV || 'development'
+  });
+});
+
+// API status endpoint
+app.get('/api', (req, res) => {
+  res.json({ 
+    message: 'TransferHub API is running',
+    version: '1.0.0',
+    environment: process.env.NODE_ENV || 'development'
+  });
+});
+
 // Default route
 app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, '../frontend/index.html'));
@@ -61,9 +94,6 @@ app.get('/', (req, res) => {
 app.get('/receive/:code', (req, res) => {
   res.sendFile(path.join(__dirname, '../frontend/index.html'));
 });
-
-app.get('/api', (req, res) => {
-  res.json({ message: 'SendAnywhere Clone API is running' });
 });
 
 // Socket.io connection for real-time file transfers
