@@ -28,15 +28,21 @@ const io = socketIo(server, {
 });
 
 // Database connection
-const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
-  user: process.env.DB_USER,
-  host: process.env.DB_HOST,
-  database: process.env.DB_NAME,
-  password: process.env.DB_PASSWORD,
-  port: process.env.DB_PORT || 5432,
-  ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false
-});
+const pool = new Pool(
+  process.env.DATABASE_URL 
+    ? {
+        connectionString: process.env.DATABASE_URL,
+        ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false
+      }
+    : {
+        user: process.env.DB_USER,
+        host: process.env.DB_HOST,
+        database: process.env.DB_NAME,
+        password: process.env.DB_PASSWORD,
+        port: process.env.DB_PORT || 5432,
+        ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false
+      }
+);
 
 // CORS configuration for production
 const corsOptions = {
@@ -233,26 +239,56 @@ io.on('connection', (socket) => {
       console.error('Error completing transfer:', error);
     }
   });
-  
-  // Handle disconnect
+    // Handle disconnect
   socket.on('disconnect', async () => {
+    console.log('Client disconnected:', socket.id);
     try {
-      // Clean up any active sessions for this socket
-      await pool.query(
-        'DELETE FROM transfer_sessions WHERE sender_socket_id = $1 OR receiver_socket_id = $1',
-        [socket.id]
-      );
-      console.log('Client disconnected:', socket.id);
+      // Only clean up database if we have a valid connection
+      if (process.env.DATABASE_URL || (process.env.DB_HOST && process.env.DB_HOST !== 'localhost')) {
+        await pool.query(
+          'DELETE FROM transfer_sessions WHERE sender_socket_id = $1 OR receiver_socket_id = $1',
+          [socket.id]
+        );
+        console.log('Database cleanup completed for socket:', socket.id);
+      } else {
+        console.log('Skipping database cleanup - using memory storage');
+        // Clean up memory storage instead
+        memoryStorage.cleanupSocketSessions(socket.id);
+      }
     } catch (error) {
-      console.error('Error cleaning up after disconnect:', error);
-    }  });
+      console.error('Error cleaning up after disconnect:', error.message);
+      // Fallback to memory storage cleanup
+      try {
+        memoryStorage.cleanupSocketSessions(socket.id);
+        console.log('Fallback: Memory storage cleanup completed');
+      } catch (memError) {
+        console.error('Memory storage cleanup also failed:', memError.message);
+      }
+    }
+  });
 });
 
+// Test database connection and initialize
+async function initializeDatabase() {
+  try {
+    console.log('Testing database connection...');
+    await pool.query('SELECT NOW()');
+    console.log('✅ Database connection successful');
+    
+    // Initialize database schema
+    const { setupDatabase } = require('./config/db');
+    await setupDatabase();
+    console.log('✅ Database initialized');
+    return true;
+  } catch (error) {
+    console.error('❌ Database connection failed:', error.message);
+    console.log('🔄 Will use memory storage for this session');
+    return false;
+  }
+}
+
 // Initialize database
-const { setupDatabase } = require('./config/db');
-setupDatabase().then(() => {
-  console.log('Database initialized');
-});
+initializeDatabase();
 
 // Start server
 const PORT = process.env.PORT || 4999;

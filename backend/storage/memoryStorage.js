@@ -91,12 +91,20 @@ class MemoryStorage {
     this.transferStats.set(Date.now().toString(), stat);
     return stat;
   }
-
   // Cleanup expired sessions
   cleanup() {
     const now = new Date();
     for (const [code, session] of this.transferSessions.entries()) {
       if (now > session.expires_at) {
+        this.transferSessions.delete(code);
+      }
+    }
+  }
+
+  // Cleanup sessions for a specific socket
+  cleanupSocketSessions(socketId) {
+    for (const [code, session] of this.transferSessions.entries()) {
+      if (session.sender_socket_id === socketId || session.receiver_socket_id === socketId) {
         this.transferSessions.delete(code);
       }
     }
