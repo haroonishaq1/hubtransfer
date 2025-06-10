@@ -94,7 +94,6 @@ app.get('/', (req, res) => {
 app.get('/receive/:code', (req, res) => {
   res.sendFile(path.join(__dirname, '../frontend/index.html'));
 });
-});
 
 // Socket.io connection for real-time file transfers
 io.on('connection', (socket) => {
