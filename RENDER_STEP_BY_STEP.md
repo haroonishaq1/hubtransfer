@@ -48,18 +48,19 @@
    - **Start Command**: `npm start`
    - **Plan**: **Free**
 
-4. **Environment Variables** (Click "Advanced" → "Add Environment Variable"):
+4. **Environment Variables** (Click "Advanced"):
+   
+   **Add these manually:**
    ```
    NODE_ENV=production
    PORT=10000
-   DB_USER=postgres
-   DB_HOST=[Your DB Host from Step 1]
-   DB_NAME=sendanywhere_clone
-   DB_PASSWORD=[Your DB Password from Step 1]
-   DB_PORT=5432
-   JWT_SECRET=[Generate 32+ character random string]
-   DATABASE_URL=[Full Internal Database URL from Step 1]
+   JWT_SECRET=[Generate 32+ character random string - minimum 32 chars]
    ```
+   
+   **Then connect database:**
+   - Click "Add Database"
+   - Select your `hubtransfer-db` database
+   - This automatically adds `DATABASE_URL` and other DB variables
 
 5. **Click "Create Web Service"**
 6. **Wait for deployment** (5-10 minutes)
