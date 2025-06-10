@@ -1242,15 +1242,19 @@ class SendAnywhereApp {
             console.log('P2P connection established with', targetSocketId);
             
             if (initiator) {
-                // Sender: start sending files
+                // Sender: start sending files with a small delay to ensure receiver is ready
                 console.log('Starting file transfer as sender');
-                this.sendFiles();
+                setTimeout(() => {
+                    console.log('Delay completed, now calling sendFiles()');
+                    this.sendFiles();
+                }, 100); // 100ms delay to ensure receiver is ready
             } else {
-                console.log('Ready to receive files');
+                console.log('Ready to receive files - setting up data handler');
             }
         });
 
         this.peer.on('data', (data) => {
+            console.log('RECEIVER: Data event triggered, calling handleIncomingData');
             this.handleIncomingData(data);
         });
 
@@ -1282,21 +1286,76 @@ class SendAnywhereApp {
         
         if (progressBar) {
             progressBar.classList.remove('hidden');
-        }
-
-        let fileIndex = 0;
+        }        let fileIndex = 0;
         let totalSize = this.selectedFiles.reduce((sum, file) => sum + file.size, 0);
-        let sentSize = 0;
+        let sentSize = 0;        // Define sendNextFile function first
+        const sendNextFile = () => {
+            console.log('sendNextFile called, fileIndex:', fileIndex, 'totalFiles:', this.selectedFiles.length);
+            
+            if (fileIndex >= this.selectedFiles.length) {
+                console.log('All files sent, sending completion message');
+                // All files sent
+                this.peer.send(JSON.stringify({ type: 'complete' }));
+                this.handleTransferComplete();
+                return;
+            }
 
-        // Check if we need to create a ZIP file
+            const file = this.selectedFiles[fileIndex];
+            console.log('Sending file:', file.name, 'size:', file.size);
+            const chunkSize = 16384; // 16KB chunks
+            let offset = 0;            // Send file metadata
+            console.log('Sending file metadata for:', file.name);
+            this.peer.send(JSON.stringify({
+                type: 'file-start',
+                name: file.name,
+                size: file.size,
+                mimeType: file.type
+            }));
+
+            const sendChunk = () => {
+                const reader = new FileReader();
+                const slice = file.slice(offset, offset + chunkSize);
+
+                reader.onload = (e) => {
+                    console.log('Sending chunk, offset:', offset, 'chunkSize:', chunkSize, 'totalSize:', file.size);
+                    this.peer.send(e.target.result);
+                    offset += chunkSize;
+                    sentSize += Math.min(chunkSize, file.size - (offset - chunkSize));
+
+                    // Update progress
+                    const progress = (sentSize / totalSize) * 100;
+                    const progressFill = document.querySelector('.progress-fill');
+                    if (progressFill) {
+                        progressFill.style.width = progress + '%';
+                    }
+
+                    if (offset < file.size) {
+                        sendChunk();
+                    } else {
+                        console.log('File completed:', file.name, 'Moving to next file');
+                        // File complete
+                        this.peer.send(JSON.stringify({ type: 'file-end' }));
+                        fileIndex++;
+                        sendNextFile();
+                    }
+                };
+
+                reader.readAsArrayBuffer(slice);
+            };
+
+            sendChunk();
+        };// Check if we need to create a ZIP file
+        console.log('Checking if ZIP file is needed for', this.selectedFiles.length, 'files');
         const zipFile = await this.createZipFile();
+        console.log('ZIP file result:', zipFile);
+        
         if (zipFile) {
-            // Send ZIP file metadata
+            console.log('Sending ZIP file:', zipFile.name);            // Send ZIP file metadata
             this.peer.send(JSON.stringify({
                 type: 'file-start',
                 name: zipFile.name,
                 size: zipFile.size,
-                type: zipFile.type
+                mimeType: zipFile.type
             }));
 
             // Read and send ZIP file in chunks
@@ -1329,83 +1388,41 @@ class SendAnywhereApp {
                 };
 
                 reader.readAsArrayBuffer(slice);
-            };
-
-            sendChunk();
+            };            sendChunk();
         } else {
+            console.log('No ZIP file created, sending files individually');
+            console.log('About to call sendNextFile for', this.selectedFiles.length, 'files');
             // No ZIP file created, send files individually
             sendNextFile();
         }
-
-        const sendNextFile = () => {
-            if (fileIndex >= this.selectedFiles.length) {
-                // All files sent
-                this.peer.send(JSON.stringify({ type: 'complete' }));
-                this.handleTransferComplete();
-                return;
-            }
-
-            const file = this.selectedFiles[fileIndex];
-            const chunkSize = 16384; // 16KB chunks
-            let offset = 0;
-
-            // Send file metadata
-            this.peer.send(JSON.stringify({
-                type: 'file-start',
-                name: file.name,
-                size: file.size,
-                type: file.type
-            }));
-
-            const sendChunk = () => {
-                const reader = new FileReader();
-                const slice = file.slice(offset, offset + chunkSize);
-
-                reader.onload = (e) => {
-                    this.peer.send(e.target.result);
-                    offset += chunkSize;
-                    sentSize += Math.min(chunkSize, file.size - (offset - chunkSize));
-
-                    // Update progress
-                    const progress = (sentSize / totalSize) * 100;
-                    const progressFill = document.querySelector('.progress-fill');
-                    if (progressFill) {
-                        progressFill.style.width = progress + '%';
-                    }
-
-                    if (offset < file.size) {
-                        sendChunk();
-                    } else {
-                        // File complete
-                        this.peer.send(JSON.stringify({ type: 'file-end' }));
-                        fileIndex++;
-                        sendNextFile();
-                    }
-                };
-
-                reader.readAsArrayBuffer(slice);
-            };
-
-            sendChunk();
-        };
     }
 
     handleIncomingData(data) {
+        console.log('Received data, type:', typeof data, 'size:', data.byteLength || data.length);
+        
         try {
             // Try to parse as JSON (metadata)
             const message = JSON.parse(data);
+            console.log('Received message:', message);
             
             const receiveMessage = document.getElementById('receive-message');
             const receiveProgressBar = document.getElementById('receive-progress-bar');
             
-            switch (message.type) {
-                case 'file-start':
+            switch (message.type) {                case 'file-start':
+                    console.log('Starting to receive file:', message.name, 'size:', message.size, 'mimeType:', message.mimeType);
                     this.currentReceivingFile = {
                         name: message.name,
                         size: message.size,
-                        type: message.type,
+                        type: message.mimeType || 'application/octet-stream',
                         chunks: []
                     };
+                    
+                    // If we have pending chunks, add them now
+                    if (this.pendingChunks && this.pendingChunks.length > 0) {
+                        console.log('Adding', this.pendingChunks.length, 'pending chunks to current file');
+                        this.currentReceivingFile.chunks = [...this.pendingChunks];
+                        this.pendingChunks = []; // Clear pending chunks
+                    }
                     
                     if (receiveMessage) {
                         receiveMessage.textContent = `Receiving: ${message.name}`;
@@ -1418,26 +1435,38 @@ class SendAnywhereApp {
                     break;
                 
                 case 'file-end':
+                    console.log('File transfer completed, completing file receive');
                     this.completeFileReceive();
                     break;
                 
                 case 'complete':
+                    console.log('All files transfer completed');
                     this.handleReceiveComplete();
                     break;
             }
         } catch (e) {
             // Binary data (file chunk)
+            console.log('Received file chunk, size:', data.byteLength);
             if (this.currentReceivingFile) {
                 this.currentReceivingFile.chunks.push(data);
                 
                 // Update progress
                 const received = this.currentReceivingFile.chunks.reduce((sum, chunk) => sum + chunk.byteLength, 0);
                 const progress = (received / this.currentReceivingFile.size) * 100;
+                console.log('Progress:', progress.toFixed(2), '% - Received:', received, 'of', this.currentReceivingFile.size);
                 
                 const progressFill = document.querySelector('#receive-progress-bar .progress-fill');
                 if (progressFill) {
                     progressFill.style.width = progress + '%';
                 }
+            } else {
+                console.warn('Received file chunk but no currentReceivingFile set');
+                // Store chunks temporarily until we get the file-start message
+                if (!this.pendingChunks) {
+                    this.pendingChunks = [];
+                }
+                this.pendingChunks.push(data);
+                console.log('Stored chunk temporarily, total pending chunks:', this.pendingChunks.length);
             }
         }
     }
@@ -1541,10 +1570,10 @@ class SendAnywhereApp {
             statusMessage.textContent = 'Transfer completed successfully!';
             statusMessage.className = 'status-completed';
         }
-        
-        // Log transfer stats
+          // Log transfer stats
         const totalSize = this.selectedFiles.reduce((sum, file) => sum + file.size, 0);
-        fetch('http://localhost:5000/api/files/log-transfer', {
+        const apiUrl = window.AppConfig ? window.AppConfig.getApiUrl() : 'http://localhost:4999';
+        fetch(`${apiUrl}/api/files/log-transfer`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
