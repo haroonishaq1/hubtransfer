@@ -17,10 +17,9 @@ dotenv.config();
 // Initialize Express app
 const app = express();
 const server = http.createServer(app);
-const io = socketIo(server, {
-  cors: {
+const io = socketIo(server, {  cors: {
     origin: process.env.NODE_ENV === 'production' 
-      ? ['https://hubtransfer-frontend.onrender.com', 'https://hubtransfer-backend.onrender.com']
+      ? ['https://hubtransfer-frontend.onrender.com', 'https://hubtransfer.onrender.com']
       : '*',
     methods: ['GET', 'POST'],
     credentials: true
@@ -47,7 +46,7 @@ const pool = new Pool(
 // CORS configuration for production
 const corsOptions = {
   origin: process.env.NODE_ENV === 'production' 
-    ? ['https://hubtransfer-frontend.onrender.com', 'https://hubtransfer-backend.onrender.com']
+    ? ['https://hubtransfer-frontend.onrender.com', 'https://hubtransfer.onrender.com']
     : '*',
   methods: ['GET', 'POST', 'PUT', 'DELETE'],
   allowedHeaders: ['Content-Type', 'Authorization'],
